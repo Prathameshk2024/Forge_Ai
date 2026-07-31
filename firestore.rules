@@ -1,0 +1,13 @@
+rules_version = '2';
+
+// ForgeAI project history.
+// Every project lives under the owner's uid, so a user can only ever read or
+// write their own documents. Paste these rules into
+// Firebase console -> Firestore Database -> Rules.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{userId}/projects/{projectId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}
