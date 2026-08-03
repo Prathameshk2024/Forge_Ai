@@ -1,8 +1,9 @@
 import {
   createUserWithEmailAndPassword,
+  getRedirectResult,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
-  signInWithPopup,
+  signInWithRedirect,
   signOut,
   updateProfile,
   User,
@@ -21,9 +22,31 @@ function requireAuthInstance() {
   return auth;
 }
 
-export async function signInWithGoogle(): Promise<User> {
-  const credential = await signInWithPopup(requireAuthInstance(), googleProvider);
-  return credential.user;
+/**
+ * Google sign-in via full-page redirect rather than a popup.
+ *
+ * The builder needs `Cross-Origin-Opener-Policy: same-origin` so WebContainer
+ * gets the cross-origin isolation SharedArrayBuffer requires. That header puts
+ * any popup in a separate browsing context group, which severs `window.opener`
+ * and leaves `signInWithPopup` unable to hand the credential back - it hangs or
+ * throws instead. A top-level navigation is unaffected by COOP, so redirect is
+ * the only popup-free flow that works on a cross-origin-isolated page.
+ *
+ * Never resolves on success: the document is replaced. The result is picked up
+ * on the way back by `consumeGoogleRedirectResult`.
+ */
+export async function startGoogleSignIn(): Promise<void> {
+  await signInWithRedirect(requireAuthInstance(), googleProvider);
+}
+
+/**
+ * Completes a redirect sign-in after the browser lands back on the app.
+ * Returns the user when this load followed a sign-in, `null` on a normal load.
+ */
+export async function consumeGoogleRedirectResult(): Promise<User | null> {
+  if (!auth) return null;
+  const credential = await getRedirectResult(auth);
+  return credential?.user ?? null;
 }
 
 export async function signInWithEmail(email: string, password: string): Promise<User> {
@@ -66,11 +89,14 @@ export function mapAuthError(error: unknown): string {
       return 'An account already exists with this email. Try signing in instead.';
     case 'auth/weak-password':
       return 'Password should be at least 6 characters.';
-    case 'auth/popup-closed-by-user':
-    case 'auth/cancelled-popup-request':
-      return 'Sign-in popup was closed before finishing.';
-    case 'auth/popup-blocked':
-      return 'Your browser blocked the sign-in popup. Allow popups and try again.';
+    case 'auth/unauthorized-domain':
+      return 'This domain is not authorised in Firebase. Add it under Authentication -> Settings -> Authorized domains.';
+    case 'auth/account-exists-with-different-credential':
+      return 'An account already exists with this email using a different sign-in method. Sign in that way instead.';
+    case 'auth/web-storage-unsupported':
+      return 'Your browser is blocking site storage, which sign-in needs. Allow cookies for this site and try again.';
+    case 'auth/redirect-cancelled-by-user':
+      return 'Sign-in was cancelled before finishing.';
     case 'auth/network-request-failed':
       return 'Network error. Check your connection and try again.';
     case 'auth/too-many-requests':

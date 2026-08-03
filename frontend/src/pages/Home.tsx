@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight, GraduationCap, Download, History, Sparkles } from 'lucide-react';
 import { AppHeader } from '../components/layout/AppHeader';
@@ -7,6 +7,7 @@ import { Button } from '../components/ui/Button';
 import { APP_NAME, APP_TAGLINE } from '../brand';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { takeAuthIntent } from '../lib/authIntent';
 
 const EXAMPLE_PROMPTS = [
   'A portfolio site for a photographer with a gallery and contact form',
@@ -26,8 +27,37 @@ export function Home() {
   const [prompt, setPrompt] = useState('');
   const [checkingAuth, setCheckingAuth] = useState(false);
   const navigate = useNavigate();
-  const { requireAuth } = useAuth();
+  const { user, initializing, requireAuth } = useAuth();
   const toast = useToast();
+
+  /**
+   * Picks up where a Google redirect left off.
+   *
+   * Google always returns the browser to the URL it left from. Leaving from the
+   * builder lands back on a document with no router state, so the builder sends
+   * the user here - which makes Home the single place worth replaying from.
+   */
+  const resumed = useRef(false);
+  useEffect(() => {
+    if (resumed.current || initializing) return;
+
+    const intent = takeAuthIntent();
+    if (!intent) return;
+    resumed.current = true;
+
+    // Signed out means the redirect failed or was abandoned; AuthContext has
+    // already logged the reason. Restore the prompt so nothing is retyped.
+    if (!user) {
+      if (intent.prompt) setPrompt(intent.prompt);
+      return;
+    }
+
+    if (intent.prompt) {
+      navigate(intent.path, { state: { prompt: intent.prompt } });
+    } else {
+      navigate(intent.path);
+    }
+  }, [initializing, user, navigate]);
 
   /**
    * Generation is gated: an anonymous click opens the login modal and, once the
@@ -39,7 +69,9 @@ export function Home() {
     if (!value || checkingAuth) return;
 
     setCheckingAuth(true);
-    const allowed = await requireAuth();
+    // The intent is what survives a redirect sign-in; ignored for the popup-free
+    // paths (already signed in, or Firebase not configured) that resolve inline.
+    const allowed = await requireAuth({ path: '/builder', prompt: value });
     setCheckingAuth(false);
 
     if (!allowed) {

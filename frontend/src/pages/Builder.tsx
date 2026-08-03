@@ -236,7 +236,9 @@ export function Builder() {
 
     (async () => {
       // Generation always requires a signed-in user; the modal resolves this.
-      const allowed = await requireAuth();
+      // The intent carries the prompt through a Google redirect, which drops
+      // router state - Home replays it once the user is back and signed in.
+      const allowed = await requireAuth({ path: '/builder', prompt: requestedPrompt! });
       if (!allowed) {
         setError('Sign in to generate this project.');
         return;

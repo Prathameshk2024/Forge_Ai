@@ -10,8 +10,8 @@ import {
   mapAuthError,
   resetPassword,
   signInWithEmail,
-  signInWithGoogle,
   signUpWithEmail,
+  startGoogleSignIn,
 } from '../../lib/auth';
 import { useToast } from '../../context/ToastContext';
 
@@ -22,6 +22,11 @@ interface AuthModalProps {
   onClose: () => void;
   /** Called with the freshly authenticated user so queued actions can resume. */
   onAuthenticated: (user: User) => void;
+  /**
+   * Fired just before Google sign-in navigates the tab away, so the provider
+   * can persist anything that needs to survive the round trip.
+   */
+  onRedirectStart: () => void;
 }
 
 const COPY: Record<Mode, { title: string; description: string; submit: string }> = {
@@ -66,7 +71,7 @@ function GoogleIcon() {
  * Google + Email/Password sign-in. Rendered once by the AuthProvider so any
  * gated action (Generate, Save, Mentor...) can raise it on demand.
  */
-export function AuthModal({ open, onClose, onAuthenticated }: AuthModalProps) {
+export function AuthModal({ open, onClose, onAuthenticated, onRedirectStart }: AuthModalProps) {
   const [mode, setMode] = useState<Mode>('signin');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -86,16 +91,19 @@ export function AuthModal({ open, onClose, onAuthenticated }: AuthModalProps) {
 
   const copy = COPY[mode];
 
+  /**
+   * Hands the tab to Google. On success this never returns - the document is
+   * replaced - so the spinner stays up until the browser navigates away, and
+   * only a failure to *start* the redirect lands in the catch.
+   */
   async function handleGoogle() {
     setError('');
     setBusy('google');
     try {
-      const user = await signInWithGoogle();
-      toast.success(`Welcome, ${user.displayName ?? 'friend'}!`);
-      onAuthenticated(user);
+      onRedirectStart();
+      await startGoogleSignIn();
     } catch (e) {
       setError(mapAuthError(e));
-    } finally {
       setBusy(null);
     }
   }
