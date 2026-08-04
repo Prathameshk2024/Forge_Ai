@@ -1,6 +1,6 @@
 rules_version = '2';
 
-// ForgeAI project history.
+// IntelliBuild project history.
 // Every project lives under the owner's uid, so a user can only ever read or
 // write their own documents. Paste these rules into
 // Firebase console -> Firestore Database -> Rules.

@@ -37,11 +37,11 @@ if (isFirebaseConfigured) {
   // Survives refreshes and browser restarts; this is what keeps the user
   // logged in when a running generation is interrupted by F5.
   setPersistence(authInstance, browserLocalPersistence).catch((e) =>
-    console.error('[ForgeAI] Could not enable auth persistence', e)
+    console.error('[IntelliBuild] Could not enable auth persistence', e)
   );
 } else {
   console.warn(
-    '[ForgeAI] Firebase is not configured. Copy frontend/.env.example to frontend/.env and fill in your project keys to enable sign-in and project history.'
+    '[IntelliBuild] Firebase is not configured. Copy frontend/.env.example to frontend/.env and fill in your project keys to enable sign-in and project history.'
   );
 }
 

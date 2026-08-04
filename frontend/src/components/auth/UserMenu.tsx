@@ -74,7 +74,7 @@ export function UserMenu() {
           className="absolute right-0 mt-2 w-60 bg-gray-900 border border-gray-800 rounded-xl shadow-2xl overflow-hidden z-50 animate-scale-in origin-top-right"
         >
           <div className="px-4 py-3 border-b border-gray-800">
-            <p className="text-sm font-medium text-gray-100 truncate">{user.displayName ?? 'ForgeAI user'}</p>
+            <p className="text-sm font-medium text-gray-100 truncate">{user.displayName ?? 'IntelliBuild user'}</p>
             <p className="text-xs text-gray-500 truncate">{user.email}</p>
           </div>
           <button

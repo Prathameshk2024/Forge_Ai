@@ -62,7 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     consumeGoogleRedirectResult().catch((e) => {
       // A failed redirect has nothing left to resume.
       clearAuthIntent();
-      console.error('[ForgeAI] Google sign-in did not complete', e);
+      console.error('[IntelliBuild] Google sign-in did not complete', e);
     });
   }, []);
 

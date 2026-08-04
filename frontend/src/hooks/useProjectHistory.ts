@@ -20,7 +20,7 @@ export function useProjectHistory(user: User | null) {
     try {
       setProjects(await listProjects(user.uid));
     } catch (e) {
-      console.error('[ForgeAI] Failed to load project history', e);
+      console.error('[IntelliBuild] Failed to load project history', e);
       setError('Could not load your projects. Check your connection and Firestore rules.');
     } finally {
       setLoading(false);
@@ -40,7 +40,7 @@ export function useProjectHistory(user: User | null) {
       try {
         await deleteProject(user.uid, projectId);
       } catch (e) {
-        console.error('[ForgeAI] Failed to delete project', e);
+        console.error('[IntelliBuild] Failed to delete project', e);
         setProjects(previous);
         throw e;
       }

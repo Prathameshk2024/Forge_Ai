@@ -16,7 +16,7 @@ interface AppHeaderProps {
 }
 
 /**
- * Shared application header: ForgeAI mark, wordmark and tagline on the left,
+ * Shared application header: IntelliBuild mark, wordmark and tagline on the left,
  * page actions plus theme and account controls on the right. Used by every
  * page so branding stays consistent.
  */

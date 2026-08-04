@@ -87,7 +87,7 @@ export function useProjectPersistence({
         lastSignature.current = signature;
         setStatus('saved');
       } catch (e) {
-        console.error('[ForgeAI] Failed to save project', e);
+        console.error('[IntelliBuild] Failed to save project', e);
         setStatus('error');
       }
     };
@@ -137,7 +137,7 @@ export function useProjectPersistence({
       try {
         await saveMentorExplanation(user.uid, projectIdRef.current, mentor);
       } catch (e) {
-        console.error('[ForgeAI] Failed to save mentor explanation', e);
+        console.error('[IntelliBuild] Failed to save mentor explanation', e);
       }
     },
     [user]
@@ -147,7 +147,7 @@ export function useProjectPersistence({
   useEffect(() => {
     if (!projectId || !user || !pendingMentor.current) return;
     saveMentorExplanation(user.uid, projectId, pendingMentor.current).catch((e) =>
-      console.error('[ForgeAI] Failed to save mentor explanation', e)
+      console.error('[IntelliBuild] Failed to save mentor explanation', e)
     );
   }, [projectId, user]);
 

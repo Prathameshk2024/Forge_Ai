@@ -1,16 +1,16 @@
-# Render blueprint: deploys ForgeAI as a static frontend plus an API service.
+# Render blueprint: deploys IntelliBuild as a static frontend plus an API service.
 #
 #   Dashboard -> Blueprints -> New Blueprint Instance -> pick this repo.
 #
 # Two secrets are NOT in here and must be set by hand after the first deploy:
-#   forgeai-api      -> GEMINI_API_KEY
-#   forgeai-web      -> VITE_FIREBASE_* (see frontend/.env.example)
+#   intellibuild-api      -> GEMINI_API_KEY
+#   intellibuild-web      -> VITE_FIREBASE_* (see frontend/.env.example)
 services:
   # --- API ------------------------------------------------------------------
   # A web service, not a serverless function: generation holds the connection
   # open for far longer than a function timeout allows.
   - type: web
-    name: forgeai-api
+    name: intellibuild-api
     runtime: node
     rootDir: backend
     plan: free
@@ -29,12 +29,12 @@ services:
       - key: ALLOWED_ORIGINS
         fromService:
           type: web
-          name: forgeai-web
+          name: intellibuild-web
           property: hostport
 
   # --- Frontend -------------------------------------------------------------
   - type: web
-    name: forgeai-web
+    name: intellibuild-web
     runtime: static
     rootDir: frontend
     buildCommand: npm install && npm run build
@@ -43,7 +43,7 @@ services:
       - key: VITE_BACKEND_URL
         fromService:
           type: web
-          name: forgeai-api
+          name: intellibuild-api
           property: host
     headers:
       # WebContainer needs SharedArrayBuffer, which requires the page to be

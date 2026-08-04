@@ -47,7 +47,7 @@ async function addContainerFiles(
       zip.file(childPath.replace(/^\.\//, ''), contents);
       added.count += 1;
     } catch (e) {
-      console.warn(`[ForgeAI] Skipped ${childPath} while exporting`, e);
+      console.warn(`[IntelliBuild] Skipped ${childPath} while exporting`, e);
     }
   }
 

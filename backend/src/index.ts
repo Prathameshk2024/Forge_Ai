@@ -24,7 +24,7 @@ const app = express();
 /**
  * In production only the deployed frontend may call this API - an open CORS
  * policy lets any site spend your Gemini quota. Set ALLOWED_ORIGINS to a
- * comma-separated list (e.g. "https://forgeai.onrender.com"). Left unset, the
+ * comma-separated list (e.g. "https://intellibuild.onrender.com"). Left unset, the
  * API stays open, which is the right default for local development.
  */
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? "")

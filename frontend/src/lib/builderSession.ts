@@ -12,7 +12,7 @@
  * between two builder tabs' independent generations.
  */
 
-const KEY = 'forgeai:builder-session';
+const KEY = 'intellibuild:builder-session';
 
 export interface BuilderSession {
   prompt: string;

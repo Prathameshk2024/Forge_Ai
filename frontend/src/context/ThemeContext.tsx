@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, R
 
 export type Theme = 'dark' | 'light';
 
-const STORAGE_KEY = 'forgeai:theme';
+const STORAGE_KEY = 'intellibuild:theme';
 
 interface ThemeContextValue {
   theme: Theme;

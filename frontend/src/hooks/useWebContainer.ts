@@ -18,7 +18,7 @@ export function useWebContainer() {
             instance = webcontainerInstance;
             setWebcontainer(webcontainerInstance);
         }).catch((e) => {
-            console.error('[ForgeAI] WebContainer failed to boot', e);
+            console.error('[IntelliBuild] WebContainer failed to boot', e);
         });
 
         return () => {
@@ -29,7 +29,7 @@ export function useWebContainer() {
             try {
                 instance?.teardown();
             } catch (e) {
-                console.debug('[ForgeAI] WebContainer teardown', e);
+                console.debug('[IntelliBuild] WebContainer teardown', e);
             }
         };
     }, [])

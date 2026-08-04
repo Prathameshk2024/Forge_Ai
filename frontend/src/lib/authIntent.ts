@@ -7,7 +7,7 @@
  * tab closes, so a half-finished intent never leaks into a later visit.
  */
 
-const KEY = 'forgeai:auth-intent';
+const KEY = 'intellibuild:auth-intent';
 
 export interface AuthIntent {
   /** Where the user should land once they are signed in. */

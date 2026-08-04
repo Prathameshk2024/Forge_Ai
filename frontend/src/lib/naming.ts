@@ -8,7 +8,7 @@ export function projectDisplayName(prompt: string, fallback = 'Untitled project'
 }
 
 /** Filesystem-safe name used for the downloaded ZIP. */
-export function slugifyProjectName(value: string, fallback = 'forgeai-project'): string {
+export function slugifyProjectName(value: string, fallback = 'intellibuild-project'): string {
   const slug = value
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')

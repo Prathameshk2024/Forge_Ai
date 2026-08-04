@@ -60,7 +60,7 @@ export function buildProjectDigest(files: MentorFile[]): { digest: string; inclu
   };
 }
 
-export const MENTOR_SYSTEM_PROMPT = `You are the AI Mentor inside ForgeAI, a tool that generates full web projects from a prompt and then teaches the user how the generated code works.
+export const MENTOR_SYSTEM_PROMPT = `You are the AI Mentor inside IntelliBuild, a tool that generates full web projects from a prompt and then teaches the user how the generated code works.
 
 You will receive the user's original prompt and the generated project's files. Explain the project so that a beginner-to-intermediate developer fully understands it and could confidently defend it in a job interview.
 

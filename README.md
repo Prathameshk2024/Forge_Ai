@@ -1,8 +1,8 @@
-# ForgeAI
+# IntelliBuild
 
-**Build. Learn. Launch.** — Describe an app in plain English. ForgeAI generates
-every file with Google Gemini, boots the project in a real Node.js runtime
-*inside your browser tab*, and then explains the code back to you.
+**Think. Build. Deploy.** — Describe an app in plain English. IntelliBuild
+generates every file with Google Gemini, boots the project in a real Node.js
+runtime *inside your browser tab*, and then explains the code back to you.
 
 ```
 frontend/   React 18 + TypeScript + Vite + Tailwind + WebContainer + Firebase
@@ -133,7 +133,7 @@ preview, mentor and ZIP export all work signed-out.
 
 | Symptom | Cause & fix |
 | --- | --- |
-| *"Cannot reach the ForgeAI server"* | Backend isn't running, or `VITE_BACKEND_URL` points elsewhere. Terminal one should show `🚀 Server running on port 3000`. |
+| *"Cannot reach the IntelliBuild server"* | Backend isn't running, or `VITE_BACKEND_URL` points elsewhere. Terminal one should show `🚀 Server running on port 3000`. |
 | *"The AI service is overloaded"* | Gemini returned 503 after all retries **and** the fallback model. Wait ~30s and retry. |
 | *"...is rate-limited right now"* | 429 — free-tier quota. Wait, or switch `GEMINI_MODEL`. |
 | Preview stays blank | `npm install` is still running inside the tab; watch the steps sidebar. If it never starts, the page isn't cross-origin isolated — check `crossOriginIsolated === true` in the console. |

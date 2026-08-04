@@ -162,12 +162,12 @@ export function Builder() {
             // `npm install` may only start once package.json is actually on disk.
             if (!cancelled && files.some((file) => file.name === 'package.json')) setMountReady(true);
           })
-          .catch((e) => console.error('[ForgeAI] Failed to mount project', e));
+          .catch((e) => console.error('[IntelliBuild] Failed to mount project', e));
       } catch (e) {
         // mount() throws synchronously once the container has been torn down
         // ("Proxy has been released"), which is reachable by leaving the page
         // inside the debounce window.
-        console.debug('[ForgeAI] Skipped mount into a released container', e);
+        console.debug('[IntelliBuild] Skipped mount into a released container', e);
       }
     }, MOUNT_DEBOUNCE_MS);
 
@@ -244,7 +244,7 @@ export function Builder() {
         writeBuilderSession({ prompt: project.prompt, status: 'done', projectId });
         toast.info('Project restored', `${project.fileCount} files loaded from your history.`);
       } catch (e) {
-        console.error('[ForgeAI] Failed to restore project', e);
+        console.error('[IntelliBuild] Failed to restore project', e);
         setError('Could not load that project. Check your connection and try again.');
       } finally {
         setRestoring(false);

@@ -3,7 +3,7 @@ import { BACKEND_URL } from '../config';
 import { MentorExplanation } from '../types';
 
 /**
- * Single place where the frontend talks to the ForgeAI backend. Keeping the
+ * Single place where the frontend talks to the IntelliBuild backend. Keeping the
  * endpoints here means pages only deal with typed results and one error helper.
  */
 
@@ -16,7 +16,7 @@ export function extractErrorMessage(e: unknown, fallback: string): string {
   if (axios.isAxiosError(e)) {
     const err = e as AxiosError<{ error?: string }>;
     if (err.code === 'ERR_NETWORK') {
-      return 'Cannot reach the ForgeAI server. Make sure the backend is running on ' + BACKEND_URL + '.';
+      return 'Cannot reach the IntelliBuild server. Make sure the backend is running on ' + BACKEND_URL + '.';
     }
     return err.response?.data?.error ?? fallback;
   }
