@@ -1,6 +1,6 @@
 import { WebContainer, WebContainerProcess } from '@webcontainer/api';
 import { useEffect, useRef, useState } from 'react';
-import { ExternalLink, MonitorPlay, RotateCw } from 'lucide-react';
+import { MonitorPlay, RotateCw } from 'lucide-react';
 import { PreviewStatus } from '../types';
 import { EmptyState, ErrorState } from './ui/States';
 import { Button } from './ui/Button';
@@ -8,12 +8,38 @@ import { Button } from './ui/Button';
 interface PreviewFrameProps {
   webContainer?: WebContainer;
   /**
-   * Gate for `npm install`: the project files must be mounted first, otherwise
+   * Gate for `npm install`: package.json must be mounted first, otherwise
    * install runs against an empty filesystem.
+   *
+   * This opens as soon as the *template* lands, which is well before the model
+   * has finished writing the project - the whole point, since it lets the
+   * slowest phase of a build overlap with generation instead of following it.
+   */
+  canInstall?: boolean;
+  /**
+   * Gate for the dev server, opened once generation has settled. Kept separate
+   * from `canInstall` so Vite never boots over a half-written project.
    */
   canStart?: boolean;
   onReady?: (url: string) => void;
   onStatusChange?: (status: PreviewStatus) => void;
+}
+
+/** Resolves once `predicate` holds, or bails out early if `abort` goes true. */
+function waitUntil(predicate: () => boolean, abort: () => boolean): Promise<boolean> {
+  if (predicate()) return Promise.resolve(true);
+
+  return new Promise((resolve) => {
+    const id = window.setInterval(() => {
+      if (abort()) {
+        window.clearInterval(id);
+        resolve(false);
+      } else if (predicate()) {
+        window.clearInterval(id);
+        resolve(true);
+      }
+    }, 100);
+  });
 }
 
 const STATUS_MESSAGE: Record<PreviewStatus, string> = {
@@ -25,7 +51,13 @@ const STATUS_MESSAGE: Record<PreviewStatus, string> = {
   error: 'Something went wrong while starting the preview.',
 };
 
-export function PreviewFrame({ webContainer, canStart = true, onReady, onStatusChange }: PreviewFrameProps) {
+export function PreviewFrame({
+  webContainer,
+  canInstall = true,
+  canStart = true,
+  onReady,
+  onStatusChange,
+}: PreviewFrameProps) {
   const [url, setUrl] = useState('');
   const [status, setStatus] = useState<PreviewStatus>('idle');
   const [installLog, setInstallLog] = useState('');
@@ -44,8 +76,13 @@ export function PreviewFrame({ webContainer, canStart = true, onReady, onStatusC
     statusChangeRef.current?.(status);
   }, [status]);
 
+  // Read through a ref so opening the dev-server gate never re-runs the effect.
+  // Re-running would tear down the install that is already in flight.
+  const canStartRef = useRef(canStart);
+  canStartRef.current = canStart;
+
   useEffect(() => {
-    if (!webContainer || !canStart || hasStarted.current) {
+    if (!webContainer || !canInstall || hasStarted.current) {
       return;
     }
     hasStarted.current = true;
@@ -70,14 +107,23 @@ export function PreviewFrame({ webContainer, canStart = true, onReady, onStatusC
         activeProcess = installProcess;
         if (cancelled) return;
         // Output must be drained (even if unused) or the process can block on backpressure.
-        installProcess.output.pipeTo(
-          new WritableStream({
-            write(chunk) {
-              // Keep only the tail so a failing install can explain itself.
-              setInstallLog((current) => `${current}${chunk}`.slice(-2000));
-            },
-          })
-        );
+        //
+        // pipeTo returns a promise that rejects when the stream is aborted -
+        // which is exactly what killing the process or tearing down the
+        // container does. It settles outside this try block, so without its own
+        // catch it surfaces as an uncaught "Process aborted" on every unmount.
+        installProcess.output
+          .pipeTo(
+            new WritableStream({
+              write(chunk) {
+                // Keep only the tail so a failing install can explain itself.
+                setInstallLog((current) => `${current}${chunk}`.slice(-2000));
+              },
+            })
+          )
+          .catch(() => {
+            // Expected on teardown; a real install failure shows up in the exit code.
+          });
         const installExitCode = await installProcess.exit;
         if (cancelled) return;
         if (installExitCode !== 0) {
@@ -86,13 +132,26 @@ export function PreviewFrame({ webContainer, canStart = true, onReady, onStatusC
         }
 
         setStatus('starting');
+
+        // Install ran in parallel with generation, so the model may still be
+        // writing. Booting Vite now would serve a half-written project and make
+        // it re-optimise on every file that lands.
+        const allowed = await waitUntil(() => canStartRef.current, () => cancelled);
+        if (!allowed || cancelled) return;
+
         const devProcess = await container.spawn('npm', ['run', 'dev']);
         activeProcess = devProcess;
         if (cancelled) {
           devProcess.kill();
           return;
         }
-        devProcess.output.pipeTo(new WritableStream({ write() {} }));
+        // Same as above: drained purely to avoid backpressure, and its rejection
+        // on teardown must be swallowed rather than left uncaught.
+        devProcess.output
+          .pipeTo(new WritableStream({ write() {} }))
+          .catch(() => {
+            /* expected when the dev server is killed */
+          });
 
         unsubscribe = container.on('server-ready', (_port, readyUrl) => {
           if (cancelled) return;
@@ -115,7 +174,9 @@ export function PreviewFrame({ webContainer, canStart = true, onReady, onStatusC
       unsubscribe?.();
       activeProcess?.kill();
     };
-  }, [webContainer, canStart, attempt]);
+    // `canStart` is deliberately absent: it is consumed through canStartRef so
+    // opening the dev-server gate cannot restart the sequence mid-install.
+  }, [webContainer, canInstall, attempt]);
 
   return (
     <div className="h-full flex flex-col bg-gray-950 rounded-lg overflow-hidden">
@@ -132,15 +193,6 @@ export function PreviewFrame({ webContainer, canStart = true, onReady, onStatusC
             aria-label="Reload preview"
           >
             <RotateCw className="w-3.5 h-3.5" />
-          </Button>
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => window.open(url, '_blank', 'noopener,noreferrer')}
-            title="Open the running preview in a new browser tab"
-          >
-            <ExternalLink className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Open in New Tab</span>
           </Button>
         </div>
       )}

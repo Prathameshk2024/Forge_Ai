@@ -13,13 +13,37 @@ import {
   parseMentorResponse,
   type MentorFile,
 } from "./mentor.js";
+import { repairGeneratedImports } from "./repairImports.js";
+import { classifyTemplate } from "./classifyTemplate.js";
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY!,
 });
 
 const app = express();
 
-app.use(cors());
+/**
+ * In production only the deployed frontend may call this API - an open CORS
+ * policy lets any site spend your Gemini quota. Set ALLOWED_ORIGINS to a
+ * comma-separated list (e.g. "https://forgeai.onrender.com"). Left unset, the
+ * API stays open, which is the right default for local development.
+ */
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+if (ALLOWED_ORIGINS.length === 0) {
+  console.warn(
+    "[cors] ALLOWED_ORIGINS is not set - accepting requests from any origin. " +
+      "Set it in production so only your frontend can spend your Gemini quota."
+  );
+}
+
+app.use(
+  cors({
+    origin: ALLOWED_ORIGINS.length === 0 ? true : ALLOWED_ORIGINS,
+  })
+);
 app.use(express.json());
 
 /**
@@ -31,14 +55,60 @@ app.use(express.json());
 const PRIMARY_MODEL = process.env.GEMINI_MODEL ?? "gemini-3.5-flash";
 const FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL ?? "gemini-3-flash-preview";
 
+/**
+ * Models to try, in order. Deduplicated on purpose: pointing GEMINI_MODEL at
+ * the same name the fallback defaults to is an easy mistake, and it turns the
+ * retry loop into two full passes against one throttled model. That is actively
+ * harmful when the failure is a quota limit - it spends twice the requests to
+ * arrive at the same 429.
+ */
+const MODEL_CHAIN = [...new Set([PRIMARY_MODEL, FALLBACK_MODEL])];
+
+if (MODEL_CHAIN.length === 1) {
+  console.warn(
+    `[gemini] GEMINI_MODEL and GEMINI_FALLBACK_MODEL are both "${PRIMARY_MODEL}" - ` +
+      `there is no fallback. Set GEMINI_FALLBACK_MODEL to a different model to survive an outage.`
+  );
+}
+
 /** Upstream failures that are worth another attempt rather than a hard error. */
 const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
 const RETRY_DELAYS_MS = [500, 1000, 2000];
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * Transport-level failures that never reach an HTTP status: a dropped socket, a
+ * DNS blip, or undici giving up waiting for response headers. These arrive as a
+ * plain `TypeError: fetch failed`, so without this they bypassed the retry loop
+ * entirely - throwing on the first blip and never even trying the fallback
+ * model, despite being the most obviously transient failures there are.
+ */
+const RETRYABLE_NETWORK_CODES = new Set([
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_BODY_TIMEOUT",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_SOCKET",
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "ETIMEDOUT",
+  "EAI_AGAIN",
+]);
+
+function isNetworkError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+
+  // The useful code hides on `cause`; the outer error is just "fetch failed".
+  const code = (error as { code?: string }).code
+    ?? ((error.cause as { code?: string } | undefined)?.code);
+
+  if (code && RETRYABLE_NETWORK_CODES.has(code)) return true;
+  return error.message.includes("fetch failed");
+}
+
 function isRetryable(error: unknown): boolean {
-  return error instanceof ApiError && RETRYABLE_STATUSES.has(error.status);
+  if (error instanceof ApiError) return RETRYABLE_STATUSES.has(error.status);
+  return isNetworkError(error);
 }
 
 type GenerateParams = Parameters<typeof ai.models.generateContent>[0];
@@ -51,7 +121,7 @@ type GenerateParams = Parameters<typeof ai.models.generateContent>[0];
 async function generateWithRetry(params: Omit<GenerateParams, "model">) {
   let lastError: unknown;
 
-  for (const model of [PRIMARY_MODEL, FALLBACK_MODEL]) {
+  for (const [index, model] of MODEL_CHAIN.entries()) {
     // One initial attempt per model, plus a retry for each configured delay.
     for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
       try {
@@ -64,15 +134,16 @@ async function generateWithRetry(params: Omit<GenerateParams, "model">) {
         // Out of retries for this model - fall through to the next one.
         if (delay === undefined) break;
 
-        console.warn(
-          `[gemini] ${model} returned ${(error as ApiError).status}, retrying in ${delay}ms`
-        );
+        const reason =
+          error instanceof ApiError ? `returned ${error.status}` : "could not be reached";
+        console.warn(`[gemini] ${model} ${reason}, retrying in ${delay}ms`);
         await sleep(delay);
       }
     }
 
-    if (model === PRIMARY_MODEL) {
-      console.warn(`[gemini] ${PRIMARY_MODEL} unavailable, falling back to ${FALLBACK_MODEL}`);
+    const next = MODEL_CHAIN[index + 1];
+    if (next) {
+      console.warn(`[gemini] ${model} unavailable, falling back to ${next}`);
     }
   }
 
@@ -100,22 +171,30 @@ app.post("/template", async (req, res) => {
   try {
     const prompt = req.body.prompt;
 
-    const response = await generateWithRetry({
-  config: {
-    systemInstruction: `
+    // Most prompts say plainly which starter they need, and spending a Gemini
+    // request to be told "react" is half of every generation's quota cost. Only
+    // genuinely ambiguous prompts reach the model.
+    let answer = classifyTemplate(typeof prompt === "string" ? prompt : "") as string | null;
+
+    if (answer) {
+      console.log(`[template] ${answer} (local, no model call)`);
+    } else {
+      const response = await generateWithRetry({
+        config: {
+          systemInstruction: `
 Return either "node" or "react".
 Return ONLY one word.
 `,
-    thinkingConfig: {
-      thinkingBudget: 0
+          thinkingConfig: {
+            thinkingBudget: 0,
+          },
+        },
+        contents: prompt,
+      });
+
+      answer = response.text?.trim().toLowerCase() ?? null;
+      console.log(`[template] ${answer} (model)`);
     }
-  },
-  contents: prompt,
-});
-
-console.log(response.text);
-
-const answer = response.text?.trim().toLowerCase();
 
 
     if (answer === "react") {
@@ -187,10 +266,25 @@ app.post("/chat", async (req, res) => {
         contents: geminiMessages,
     });
 
-    console.log(response.text);
+    // Models drop imports on long multi-file generations no matter how firmly
+    // the system prompt forbids it, and a single missing icon import is a fatal
+    // "X is not defined" that blanks the preview. Patch it before the files
+    // ever reach the browser, so saved projects and downloads are fixed too.
+    const { text, repairs } = repairGeneratedImports(response.text ?? "");
+
+    for (const repair of repairs) {
+      if (repair.added.length > 0) {
+        console.log(`[repair] ${repair.filePath}: added ${repair.added.join(", ")}`);
+      }
+      if (repair.unresolved.length > 0) {
+        console.warn(
+          `[repair] ${repair.filePath}: undefined and not a lucide icon - ${repair.unresolved.join(", ")}`
+        );
+      }
+    }
 
     res.json({
-        response: response.text
+        response: text
     });
   } catch (error) {
     sendGenerationError(res, error);

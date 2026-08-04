@@ -23,9 +23,9 @@ export function useWebContainer() {
 
         return () => {
             cancelled = true;
-            // Tearing down kills any running npm install / dev server, which
-            // rejects their pending promises. Without this the abort surfaces
-            // as an uncaught "Process aborted" in the console on every unmount.
+            // Guards only against teardown throwing synchronously. The promises
+            // it aborts reject on their own and must be caught where they are
+            // created - see the pipeTo handlers in PreviewFrame.
             try {
                 instance?.teardown();
             } catch (e) {

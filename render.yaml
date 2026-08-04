@@ -1,0 +1,66 @@
+# Render blueprint: deploys ForgeAI as a static frontend plus an API service.
+#
+#   Dashboard -> Blueprints -> New Blueprint Instance -> pick this repo.
+#
+# Two secrets are NOT in here and must be set by hand after the first deploy:
+#   forgeai-api      -> GEMINI_API_KEY
+#   forgeai-web      -> VITE_FIREBASE_* (see frontend/.env.example)
+services:
+  # --- API ------------------------------------------------------------------
+  # A web service, not a serverless function: generation holds the connection
+  # open for far longer than a function timeout allows.
+  - type: web
+    name: forgeai-api
+    runtime: node
+    rootDir: backend
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /template
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false # set in the dashboard - never commit this
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash
+      - key: GEMINI_FALLBACK_MODEL
+        value: gemini-3-flash-preview
+      # Restricts the API to the frontend below, so nobody else can spend the
+      # Gemini quota. Update if you attach a custom domain.
+      - key: ALLOWED_ORIGINS
+        fromService:
+          type: web
+          name: forgeai-web
+          property: hostport
+
+  # --- Frontend -------------------------------------------------------------
+  - type: web
+    name: forgeai-web
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_BACKEND_URL
+        fromService:
+          type: web
+          name: forgeai-api
+          property: host
+    headers:
+      # WebContainer needs SharedArrayBuffer, which requires the page to be
+      # cross-origin isolated. Without these two the live preview never boots -
+      # and it fails only in production, since vite.config.ts covers dev.
+      #
+      # COEP is `credentialless`, not `require-corp`, so Firebase Auth's helper
+      # iframe still loads. Must stay in step with the `coep` option passed to
+      # WebContainer.boot() in src/hooks/useWebContainer.ts.
+      - path: /*
+        name: Cross-Origin-Embedder-Policy
+        value: credentialless
+      - path: /*
+        name: Cross-Origin-Opener-Policy
+        value: same-origin
+    routes:
+      # Client-side routing: /builder and /dashboard are not real files.
+      - type: rewrite
+        source: /*
+        destination: /index.html

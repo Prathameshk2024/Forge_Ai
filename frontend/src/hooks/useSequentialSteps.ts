@@ -6,7 +6,14 @@ interface Options {
   steps: Step[];
   setSteps: Dispatch<SetStateAction<Step[]>>;
   setFiles: Dispatch<SetStateAction<FileItem[]>>;
-  /** How long a step stays "in-progress" before flipping to completed (ms). */
+  /**
+   * How long a step stays "in-progress" before flipping to completed (ms).
+   *
+   * This is pure presentation, but it sits on the critical path: package.json
+   * cannot mount - and so `npm install` cannot begin - until the steps ahead of
+   * it have drained. At 160ms an 18-file project spent ~3s doing nothing but
+   * animating.
+   */
   delay?: number;
 }
 
@@ -19,7 +26,7 @@ interface Options {
  * marked in-progress, its file is written to the tree after `delay`, and only
  * then does the next step start.
  */
-export function useSequentialSteps({ steps, setSteps, setFiles, delay = 160 }: Options) {
+export function useSequentialSteps({ steps, setSteps, setFiles, delay = 60 }: Options) {
   // Guards the effect while a step is mid-flight; without it the state updates
   // below would immediately re-enter and start every step at once.
   const busy = useRef(false);

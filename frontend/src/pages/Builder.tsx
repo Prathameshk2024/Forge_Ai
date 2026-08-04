@@ -4,7 +4,6 @@ import {
   CheckCircle2,
   CloudOff,
   Download,
-  ExternalLink,
   GraduationCap,
   Loader2,
   RotateCw,
@@ -39,6 +38,13 @@ function nextStepId(steps: Step[]) {
   return steps.length ? Math.max(...steps.map((s) => s.id)) + 1 : 1;
 }
 
+/**
+ * How long the file tree must stay unchanged before it is mounted. Comfortably
+ * above the cadence useSequentialSteps writes at, so a burst of files collapses
+ * into one mount instead of one per file.
+ */
+const MOUNT_DEBOUNCE_MS = 200;
+
 interface BuilderRouteState {
   prompt?: string;
   /** Set when the builder is opened from the dashboard. */
@@ -69,11 +75,14 @@ export function Builder() {
   const [restoredMentor, setRestoredMentor] = useState<MentorExplanation | null>(null);
 
   const [activeTab, setActiveTab] = useState<'code' | 'preview'>('code');
+  /** Restored from Firestore rather than generated here - see previewUnlocked. */
+  const [openedFromHistory, setOpenedFromHistory] = useState(Boolean(routeState.projectId));
+  /** Set the first time the user actually asks to see the preview. */
+  const [previewRequested, setPreviewRequested] = useState(false);
   const [selectedFile, setSelectedFile] = useState<FileItem | null>(null);
   const [currentStep, setCurrentStep] = useState(1);
 
   const [previewStatus, setPreviewStatus] = useState<PreviewStatus>('idle');
-  const [previewUrl, setPreviewUrl] = useState('');
   const [mountReady, setMountReady] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [mentorOpen, setMentorOpen] = useState(false);
@@ -107,21 +116,64 @@ export function Builder() {
   // complete - this is what makes the sidebar behave like a live build log.
   useSequentialSteps({ steps, setSteps, setFiles });
 
-  // Mount the generated tree into the WebContainer whenever it changes.
+  /**
+   * True only once the model has stopped streaming *and* every step has been
+   * written to disk. Starting the dev server before this leaves Vite serving a
+   * half-written project and re-optimising on every arriving file.
+   */
+  // Phrased as "nothing outstanding" rather than "steps exist": a project
+  // restored from history with no recorded steps is still ready to run, and
+  // `mountReady` is what actually proves the files are on disk.
+  const generationSettled = !loading && !steps.some((step) => step.status !== 'completed');
+
+  /**
+   * Latched: once the dev server is allowed to start it must never be un-allowed.
+   * Follow-up messages make `generationSettled` false again, and a preview that
+   * stopped being permitted would be torn down with no way back. Later edits
+   * reach the running server through HMR instead.
+   *
+   * Projects opened from history stay locked until the Preview tab is actually
+   * opened - reading old code should not cost a 45-second `npm install`.
+   */
+  const [previewUnlocked, setPreviewUnlocked] = useState(false);
+  useEffect(() => {
+    if (!mountReady || !generationSettled) return;
+    if (openedFromHistory && !previewRequested) return;
+    setPreviewUnlocked(true);
+  }, [mountReady, generationSettled, openedFromHistory, previewRequested]);
+
+  // Mount the generated tree into the WebContainer once the writes settle.
+  //
+  // Steps land one every ~160ms, and mounting on each one re-wrote the whole
+  // tree beneath a dev server that was already running - Vite chased every
+  // change with an HMR pass and answered in-flight requests with
+  // "504 Outdated Request". Debouncing collapses a burst of files into a
+  // single mount.
   useEffect(() => {
     if (!files.length || !webcontainer) return;
     let cancelled = false;
 
-    webcontainer
-      .mount(toMountStructure(files))
-      .then(() => {
-        // `npm install` may only start once package.json is actually on disk.
-        if (!cancelled && files.some((file) => file.name === 'package.json')) setMountReady(true);
-      })
-      .catch((e) => console.error('[ForgeAI] Failed to mount project', e));
+    const timer = window.setTimeout(() => {
+      if (cancelled) return;
+      try {
+        webcontainer
+          .mount(toMountStructure(files))
+          .then(() => {
+            // `npm install` may only start once package.json is actually on disk.
+            if (!cancelled && files.some((file) => file.name === 'package.json')) setMountReady(true);
+          })
+          .catch((e) => console.error('[ForgeAI] Failed to mount project', e));
+      } catch (e) {
+        // mount() throws synchronously once the container has been torn down
+        // ("Proxy has been released"), which is reachable by leaving the page
+        // inside the debounce window.
+        console.debug('[ForgeAI] Skipped mount into a released container', e);
+      }
+    }, MOUNT_DEBOUNCE_MS);
 
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
     };
   }, [files, webcontainer]);
 
@@ -173,6 +225,9 @@ export function Builder() {
   const restoreProject = useCallback(
     async (projectId: string, uid: string) => {
       setRestoring(true);
+      // Covers both entry points - the dashboard and a post-refresh resume.
+      // Neither should pay for `npm install` until the preview is asked for.
+      setOpenedFromHistory(true);
       setError('');
       try {
         const project = await getProject(uid, projectId);
@@ -367,18 +422,6 @@ export function Builder() {
               ) : null}
             </span>
 
-            {previewUrl && (
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => window.open(previewUrl, '_blank', 'noopener,noreferrer')}
-                title="Open the running preview in a new tab"
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-                <span className="hidden xl:inline">Open in New Tab</span>
-              </Button>
-            )}
-
             <Button
               size="sm"
               variant="secondary"
@@ -486,7 +529,14 @@ export function Builder() {
 
           <div className="min-h-[26rem] lg:min-h-0 lg:h-full lg:col-span-2 bg-gray-900 border border-gray-800 rounded-lg shadow-lg flex flex-col overflow-hidden">
             <div className="shrink-0 border-b border-gray-800 px-2 pt-2">
-              <TabView activeTab={activeTab} onTabChange={setActiveTab} />
+              <TabView
+                activeTab={activeTab}
+                onTabChange={(tab) => {
+                  setActiveTab(tab);
+                  // Opening the tab is what unlocks a restored project's preview.
+                  if (tab === 'preview') setPreviewRequested(true);
+                }}
+              />
             </div>
             <div className="flex-1 min-h-0">
               <div className={activeTab === 'code' ? 'h-full' : 'hidden'}>
@@ -495,12 +545,10 @@ export function Builder() {
               <div className={activeTab === 'preview' ? 'h-full' : 'hidden'}>
                 <PreviewFrame
                   webContainer={webcontainer}
-                  canStart={mountReady}
+                  canInstall={mountReady && (!openedFromHistory || previewRequested)}
+                  canStart={previewUnlocked}
                   onStatusChange={setPreviewStatus}
-                  onReady={(url) => {
-                    setPreviewUrl(url);
-                    setActiveTab('preview');
-                  }}
+                  onReady={() => setActiveTab('preview')}
                 />
               </div>
             </div>

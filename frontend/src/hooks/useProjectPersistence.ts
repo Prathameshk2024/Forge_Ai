@@ -41,6 +41,8 @@ export function useProjectPersistence({
 
   const timer = useRef<number>();
   const lastSignature = useRef('');
+  /** The debounced write, kept so unmount and page-hide can force it through. */
+  const flushPending = useRef<(() => Promise<void>) | null>(null);
   const projectIdRef = useRef<string | null>(initialProjectId);
   const pendingMentor = useRef<MentorExplanation | null>(null);
 
@@ -60,9 +62,7 @@ export function useProjectPersistence({
     const signature = `${flat.length}:${flat.reduce((sum, f) => sum + f.content.length, 0)}:${steps.length}`;
     if (signature === lastSignature.current) return;
 
-    window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(async () => {
-      lastSignature.current = signature;
+    const write = async () => {
       setStatus('saving');
       try {
         const payload = {
@@ -81,15 +81,53 @@ export function useProjectPersistence({
           projectIdRef.current = id;
           setProjectId(id);
         }
+        // Recorded only after the write lands. Marking it up front meant a
+        // failed save could never be retried: the next run matched the stored
+        // signature and returned early, silently losing the project.
+        lastSignature.current = signature;
         setStatus('saved');
       } catch (e) {
         console.error('[ForgeAI] Failed to save project', e);
         setStatus('error');
       }
-    }, DEBOUNCE_MS);
+    };
 
-    return () => window.clearTimeout(timer.current);
+    window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(write, DEBOUNCE_MS);
+    // Lets unmount and page-hide commit the pending write instead of dropping it.
+    flushPending.current = write;
+
+    /**
+     * A debounce that is only ever cancelled loses the last save. Leaving the
+     * builder - or closing the tab - within DEBOUNCE_MS of generation settling
+     * used to discard the project entirely, which is exactly when a user is
+     * most likely to navigate away.
+     */
+    const flushOnHide = () => {
+      if (document.visibilityState === 'hidden' && flushPending.current) {
+        window.clearTimeout(timer.current);
+        const pending = flushPending.current;
+        flushPending.current = null;
+        void pending();
+      }
+    };
+    document.addEventListener('visibilitychange', flushOnHide);
+
+    return () => {
+      document.removeEventListener('visibilitychange', flushOnHide);
+      window.clearTimeout(timer.current);
+    };
   }, [files, steps, ready, user, prompt, projectName]);
+
+  // Commit anything still pending when the builder goes away for good.
+  useEffect(
+    () => () => {
+      const pending = flushPending.current;
+      flushPending.current = null;
+      void pending?.();
+    },
+    []
+  );
 
   /** Persists a mentor explanation, queuing it if the document does not exist yet. */
   const persistMentor = useCallback(
